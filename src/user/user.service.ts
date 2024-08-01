@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -9,6 +9,8 @@ import { plainToClass } from 'class-transformer';
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
@@ -17,71 +19,97 @@ export class UserService {
   ) {}
 
   async create(createUserDto: CreateUserDto): Promise<User> {
-    const user = this.userRepository.create(createUserDto);
+    try {
+      this.logger.log('Creating a new user');
 
-    if (user.addresses) {
-      user.addresses = user.addresses.map((address) =>
-        this.addressRepository.create(address),
-      );
-      user.addresses.forEach((address) => (address.user = user));
+      const user = this.userRepository.create(createUserDto);
+
+      if (user.addresses) {
+        user.addresses = user.addresses.map((address) =>
+          this.addressRepository.create(address),
+        );
+        user.addresses.forEach((address) => (address.user = user));
+      }
+
+      const savedUser = await this.userRepository.save(user);
+      this.logger.log(`User created with ID: ${savedUser.id}`);
+      return savedUser;
+    } catch (error) {
+      this.logger.error('Error creating user', error.stack);
+      throw error;
     }
-
-    const savedUser = await this.userRepository.save(user);
-    return plainToClass(User, savedUser, { excludeExtraneousValues: true });
   }
 
   async findByName(name: string): Promise<User[]> {
-    const users = await this.userRepository.find({
-      where: { name },
-      relations: ['addresses'],
-    });
-    if (users.length === 0) {
-      throw new NotFoundException('No users found with the given name.');
+    try {
+      this.logger.log(`Finding users by name: ${name}`);
+      const users = await this.userRepository.find({
+        where: { name },
+        relations: ['addresses'],
+      });
+      if (users.length === 0) {
+        this.logger.warn('No users found with the given name');
+        throw new NotFoundException('No users found with the given name.');
+      }
+      this.logger.log(`Found ${users.length} users with the name: ${name}`);
+      return users;
+    } catch (error) {
+      this.logger.error('Error finding users by name', error.stack);
+      throw error;
     }
-    return users;
   }
 
   async findByCpf(cpf: string): Promise<User> {
-    const user = await this.userRepository.findOne({
-      where: { cpf },
-      relations: ['addresses'],
-    });
-    if (!user) {
-      throw new NotFoundException('User not found with the given CPF.');
+    this.logger.log(`Finding user by CPF: ${cpf}`);
+    try {
+      const user = await this.userRepository.findOne({ where: { cpf } });
+      if (!user) {
+        this.logger.warn('User not found with the given CPF');
+        throw new NotFoundException('User not found with the given CPF.');
+      }
+      this.logger.log(`User found with CPF: ${cpf}`);
+      return user;
+    } catch (error) {
+      this.logger.error('Error finding user by CPF', error.stack);
+      throw error;
     }
-    return user;
   }
 
   async update(id: number, updateUserDto: UpdateUserDto): Promise<User> {
-    const user = await this.userRepository.findOne({
-      where: { id },
-      relations: ['addresses'],
-    });
+    try {
+      this.logger.log(`Updating user with ID: ${id}`);
+      const user = await this.userRepository.preload({
+        id,
+        ...updateUserDto,
+      });
 
-    if (updateUserDto.addresses) {
-      await this.addressRepository.remove(user.addresses);
-      user.addresses = updateUserDto.addresses.map((address) =>
-        this.addressRepository.create(address),
-      );
-      user.addresses.forEach((address) => (address.user = user));
+      if (!user) {
+        this.logger.warn('User not found for update');
+        throw new NotFoundException('User not found.');
+      }
+
+      const updatedUser = await this.userRepository.save(user);
+      return plainToClass(User, updatedUser, {
+        excludeExtraneousValues: false,
+      });
+    } catch (error) {
+      this.logger.error('Error updating user', error.stack);
+      throw error;
     }
-
-    Object.assign(user, updateUserDto);
-
-    const updatedUser = await this.userRepository.save(user);
-    return plainToClass(User, updatedUser, { excludeExtraneousValues: true });
   }
 
   async remove(id: number): Promise<void> {
-    const user = await this.userRepository.findOne({
-      where: { id },
-      relations: ['addresses'],
-    });
-
-    if (!user) {
-      throw new NotFoundException('User not found.');
+    this.logger.log(`Removing user with ID: ${id}`);
+    try {
+      const result = await this.userRepository.delete(id);
+      if (result.affected === 0) {
+        this.logger.warn('User not found for removal');
+        throw new NotFoundException('User not found.');
+      }
+      this.logger.log(`User removed with ID: ${id}`);
+    } catch (error) {
+      this.logger.error('Error removing user', error.stack);
+      throw error;
     }
-
-    await this.userRepository.remove(user);
   }
 }
