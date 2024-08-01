@@ -18,7 +18,7 @@ export class UserService {
     private readonly addressRepository: Repository<Address>,
   ) {}
 
-  async create(createUserDto: CreateUserDto): Promise<User> {
+  async create(createUserDto: CreateUserDto): Promise<void> {
     try {
       this.logger.log('Creating a new user');
 
@@ -33,7 +33,6 @@ export class UserService {
 
       const savedUser = await this.userRepository.save(user);
       this.logger.log(`User created with ID: ${savedUser.id}`);
-      return savedUser;
     } catch (error) {
       this.logger.error('Error creating user', error.stack);
       throw error;
